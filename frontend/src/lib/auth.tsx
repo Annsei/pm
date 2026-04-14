@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { loginApi } from "./api";
+import { loginApi, setAuthCredentials, clearAuthCredentials } from "./api";
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -26,7 +26,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const storedUserId = localStorage.getItem("kanban-user-id");
-    if (storedUserId) {
+    const storedCreds = localStorage.getItem("kanban-auth-creds");
+    if (storedUserId && storedCreds) {
+      setAuthCredentials(storedCreds);
       setIsAuthenticated(true);
       setUserId(storedUserId);
     }
@@ -34,12 +36,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
+      const creds = btoa(`${username}:${password}`);
+      setAuthCredentials(creds);
       const data = await loginApi(username, password);
       setIsAuthenticated(true);
       setUserId(data.id);
       localStorage.setItem("kanban-user-id", data.id);
+      localStorage.setItem("kanban-auth-creds", creds);
       return true;
     } catch {
+      clearAuthCredentials();
       return false;
     }
   };
@@ -47,7 +53,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     setIsAuthenticated(false);
     setUserId(null);
+    clearAuthCredentials();
     localStorage.removeItem("kanban-user-id");
+    localStorage.removeItem("kanban-auth-creds");
   };
 
   return (

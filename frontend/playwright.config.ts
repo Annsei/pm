@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.BASE_URL || "http://localhost:8000";
+
 export default defineConfig({
   testDir: "../tests",
   timeout: 60_000,
@@ -7,12 +9,12 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: "http://localhost:8000",
+    baseURL,
     trace: "retain-on-failure",
   },
   webServer: {
     command: "cd .. && docker compose up -d --build",
-    url: "http://localhost:8000/health",
+    url: `${baseURL}/health`,
     reuseExistingServer: true,
     timeout: 300_000,
   },

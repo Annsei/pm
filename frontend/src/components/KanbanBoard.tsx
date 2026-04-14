@@ -23,6 +23,7 @@ export const KanbanBoard = ({ userId }: { userId: string }) => {
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveVersion = useRef(0);
 
   useEffect(() => {
     getBoard(userId).then((data) => {
@@ -34,8 +35,11 @@ export const KanbanBoard = ({ userId }: { userId: string }) => {
   const save = useCallback(
     (next: BoardData) => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const version = ++saveVersion.current;
       saveTimer.current = setTimeout(() => {
-        updateBoard(userId, next);
+        if (saveVersion.current === version) {
+          updateBoard(userId, next);
+        }
       }, 500);
     },
     [userId]
@@ -46,6 +50,7 @@ export const KanbanBoard = ({ userId }: { userId: string }) => {
       setBoard((prev) => {
         if (!prev) return prev;
         const next = fn(prev);
+        if (next === prev) return prev;
         save(next);
         return next;
       });
@@ -73,10 +78,11 @@ export const KanbanBoard = ({ userId }: { userId: string }) => {
       return;
     }
 
-    update((prev) => ({
-      ...prev,
-      columns: moveCard(prev.columns, active.id as string, over.id as string),
-    }));
+    update((prev) => {
+      const newColumns = moveCard(prev.columns, active.id as string, over.id as string);
+      if (newColumns === prev.columns) return prev;
+      return { ...prev, columns: newColumns };
+    });
   };
 
   const handleRenameColumn = (columnId: string, title: string) => {
@@ -120,7 +126,8 @@ export const KanbanBoard = ({ userId }: { userId: string }) => {
 
   const handleAiBoardUpdate = useCallback(
     (updated: BoardData) => {
-      // Cancel any pending debounced save so it doesn't overwrite the AI update
+      // Bump version so any pending debounced save becomes stale
+      saveVersion.current++;
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
         saveTimer.current = null;
