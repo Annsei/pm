@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Kanban Studio - a Project Management MVP with Next.js frontend, Python FastAPI backend, and SQLite database, all packaged in Docker. Features: hardcoded single-user auth (user/password), drag-and-drop Kanban board via @dnd-kit, planned AI chat sidebar via OpenRouter.
+Kanban Studio - a multi-user project management application with Next.js frontend, Python FastAPI backend, and SQLite database, all packaged in Docker. Features: self-serve user registration, bearer-token sessions, per-user multiple Kanban boards, drag-and-drop via @dnd-kit, AI chat assistant via OpenRouter.
 
 ## Build & Run Commands
 
@@ -19,15 +19,15 @@ scripts/stop.sh                     # Shortcut for above (stop.ps1 on Windows)
 npm run dev                         # Next.js dev server
 npm run build                       # Static export build
 npm run lint                        # ESLint
-
-# Frontend tests (from frontend/)
 npm run test                        # Vitest unit tests (single run)
 npm run test:unit:watch             # Vitest watch mode
 npm run test:e2e                    # Playwright E2E tests (requires Docker running)
 npm run test:auth                   # Auth E2E tests only
 
-# Backend tests
-pytest backend/test_api.py          # From project root
+# Backend tests (from project root; .venv recommended via uv)
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python -r backend/requirements.txt
+.venv/bin/python -m pytest backend/test_api.py
 ```
 
 ## Architecture
@@ -35,23 +35,34 @@ pytest backend/test_api.py          # From project root
 **Frontend** (Next.js 16, React 19, TypeScript, Tailwind CSS v4):
 - Static export (`output: "export"` in next.config.ts) served by FastAPI
 - `src/lib/kanban.ts` — BoardData/Column/Card types and moveCard logic
-- `src/lib/auth.tsx` — AuthProvider context with localStorage persistence
-- `src/components/KanbanBoard.tsx` — main board with drag-drop, CRUD operations
-- Currently frontend-only state; backend integration not yet wired
+- `src/lib/api.ts` — typed HTTP client; throws `AuthError` on 401, `ApiError` otherwise
+- `src/lib/auth.tsx` — AuthProvider with bearer-token persistence (localStorage), login/register/logout
+- `src/components/LoginForm.tsx` — login + registration (mode toggle)
+- `src/components/BoardList.tsx` — per-user board grid (create/rename/archive/delete)
+- `src/components/KanbanBoard.tsx` — board detail view with debounced saves + filter bar + card detail dialog
+- `src/components/CardDetailDialog.tsx` — edit title/details/labels/priority/due date (state resets via `key=card.id`)
+- `src/components/BoardFilters.tsx` — client-side filtering (search, priority, labels, due-only). `applyFilters` is pure and unit-tested.
+- `src/components/AiChatSidebar.tsx` — AI chat panel (posts board_id to backend)
+- `src/app/page.tsx` — orchestrates login → board list → board detail flow
 
 **Backend** (FastAPI, SQLAlchemy, SQLite at `backend/data/kanban.db`):
-- `backend/main.py` — API routes + serves static frontend from `frontend/out`
-- `backend/models.py` — User and Board tables; board data stored as JSON string
-- Auth: HTTP Basic with SHA256 hashing (MVP only)
-- Endpoints: `POST /api/auth/login`, `GET/PUT /api/boards/{user_id}`
+- `backend/main.py` — FastAPI app + serves static frontend from `frontend/out`
+- `backend/models.py` — User, Board, Session tables; `KANBAN_DATABASE_URL` env overrides DB path
+- `backend/auth.py` — bcrypt via passlib (+ SHA256 legacy fallback), session tokens via `secrets.token_urlsafe`
+- `backend/schemas.py` — Pydantic models for auth, boards, AI
+- `backend/routes/auth.py` — POST `/api/auth/register`, `/login`, `/logout`; GET `/api/auth/me`
+- `backend/routes/boards.py` — GET/POST `/api/boards`; GET/PUT/PATCH/DELETE `/api/boards/{id}`
+- `backend/routes/ai.py` — POST `/api/ai/chat` (takes `board_id`), `/api/ai/test`
+
+**Auth**: `Authorization: Bearer <token>` header. Tokens stored server-side in `sessions` table; logout deletes the row. Default demo user (`user`/`password`) is seeded on startup for convenience.
 
 **Docker**: Multi-stage build — Node builds frontend static files, Python serves everything on port 8000.
 
 ## Testing
 
-- **Frontend unit**: Vitest + @testing-library/react, jsdom environment. Tests in `src/**/*.test.{ts,tsx}`
-- **E2E**: Playwright (Chromium only), tests in `tests/` at project root. Base URL http://localhost:8000; auto-starts Docker
-- **Backend**: pytest with httpx TestClient, uses separate `test_kanban.db`
+- **Frontend unit**: Vitest + @testing-library/react, jsdom. Tests in `src/**/*.test.{ts,tsx}`. Current coverage includes KanbanBoard, BoardList, LoginForm, kanban lib.
+- **E2E**: Playwright (Chromium), tests in `tests/` at project root. Specs: `auth.spec.ts`, `boards.spec.ts`. Base URL `http://localhost:8000`; auto-starts Docker.
+- **Backend**: pytest with httpx TestClient. Uses a temp SQLite file (set via `KANBAN_DATABASE_URL` before `backend` imports). Each test resets tables via fixture.
 
 ## Coding Standards
 
@@ -64,4 +75,4 @@ pytest backend/test_api.py          # From project root
 
 ## Project Status
 
-Parts 1-6 complete (plan, Docker, frontend UI, auth, DB schema, backend API). Frontend-backend integration (Part 7), AI connectivity (Parts 8-10) not yet implemented. See `docs/PLAN.md` for full roadmap.
+Multi-user + multi-board foundation complete (bcrypt, bearer sessions, board CRUD, registration UI). Further planned work: card labels/due-dates, board sharing/collaboration, activity log. See `docs/PLAN.md`.

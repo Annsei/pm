@@ -1,4 +1,4 @@
-import { moveCard, type Column } from "@/lib/kanban";
+import { dueDateStatus, moveCard, type Column } from "@/lib/kanban";
 
 describe("moveCard", () => {
   const baseColumns: Column[] = [
@@ -21,5 +21,26 @@ describe("moveCard", () => {
     const result = moveCard(baseColumns, "card-1", "col-b");
     expect(result[0].cardIds).toEqual(["card-2"]);
     expect(result[1].cardIds).toEqual(["card-3", "card-1"]);
+  });
+});
+
+describe("dueDateStatus", () => {
+  const today = new Date(2026, 3, 19); // April 19, 2026
+
+  it("returns null when no date", () => {
+    expect(dueDateStatus(undefined, today)).toBeNull();
+    expect(dueDateStatus(null, today)).toBeNull();
+    expect(dueDateStatus("", today)).toBeNull();
+  });
+
+  it("detects overdue, today, soon, later", () => {
+    expect(dueDateStatus("2026-04-18", today)).toBe("overdue");
+    expect(dueDateStatus("2026-04-19", today)).toBe("today");
+    expect(dueDateStatus("2026-04-21", today)).toBe("soon");
+    expect(dueDateStatus("2026-05-10", today)).toBe("later");
+  });
+
+  it("returns null for invalid strings", () => {
+    expect(dueDateStatus("not-a-date", today)).toBeNull();
   });
 });

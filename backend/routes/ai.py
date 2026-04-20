@@ -1,19 +1,20 @@
 import json
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as DbSession
 
+from backend.activity import diff_board_data, record_activity
 from backend.ai import client as ai_client, MODEL as AI_MODEL, SYSTEM_PROMPT, apply_actions
-from backend.auth import authenticate_user
-from backend.models import User, Board, get_db
+from backend.auth import get_current_user
+from backend.models import User, get_db
+from backend.permissions import get_board_with_role, require_role
 from backend.schemas import ChatRequest
 
 router = APIRouter(prefix="/api/ai")
 
 
 @router.post("/test")
-def ai_test(current_user: User = Depends(authenticate_user)):
+def ai_test(current_user: User = Depends(get_current_user)):
     try:
         response = ai_client.chat.completions.create(
             model=AI_MODEL,
@@ -31,11 +32,11 @@ def ai_test(current_user: User = Depends(authenticate_user)):
 @router.post("/chat")
 def ai_chat(
     req: ChatRequest,
-    current_user: User = Depends(authenticate_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    db: DbSession = Depends(get_db),
 ):
-    if req.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    board, role = get_board_with_role(db, req.board_id, current_user)
+    require_role(role, "editor")
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in req.history:
@@ -66,16 +67,19 @@ def ai_chat(
     board_update = apply_actions(actions, dict(req.kanban))
 
     if board_update:
-        board = db.query(Board).filter(Board.user_id == req.user_id).first()
-        if board:
-            board.data = json.dumps(board_update)
-        else:
-            board = Board(
-                id=str(uuid.uuid4()),
-                user_id=req.user_id,
-                data=json.dumps(board_update),
+        try:
+            old_data = json.loads(board.data)
+        except (ValueError, TypeError):
+            old_data = {"columns": [], "cards": {}}
+        board.data = json.dumps(board_update)
+        for event in diff_board_data(old_data, board_update):
+            record_activity(
+                db,
+                board_id=board.id,
+                user_id=current_user.id,
+                action=event.pop("action"),
+                meta={**event, "source": "ai"},
             )
-            db.add(board)
         db.commit()
 
     return {"response_text": response_text, "board_update": board_update}

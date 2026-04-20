@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.auth import seed_default_user
 from backend.models import create_tables
-from backend.routes import health, auth, boards, ai
+from backend.routes import health, auth, boards, ai, comments, notifications, dashboard
 
 
 @asynccontextmanager
@@ -22,6 +22,9 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(boards.router)
+app.include_router(comments.router)
+app.include_router(notifications.router)
+app.include_router(dashboard.router)
 app.include_router(ai.router)
 
 # Serve built frontend static export if present

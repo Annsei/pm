@@ -11,6 +11,9 @@ type KanbanColumnProps = {
   onRename: (columnId: string, title: string) => void;
   onAddCard: (columnId: string, title: string, details: string) => void;
   onDeleteCard: (columnId: string, cardId: string) => void;
+  onOpenCard: (cardId: string) => void;
+  hiddenCount?: number;
+  canEdit?: boolean;
 };
 
 export const KanbanColumn = ({
@@ -19,8 +22,11 @@ export const KanbanColumn = ({
   onRename,
   onAddCard,
   onDeleteCard,
+  onOpenCard,
+  hiddenCount = 0,
+  canEdit = true,
 }: KanbanColumnProps) => {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const { setNodeRef, isOver } = useDroppable({ id: column.id, disabled: !canEdit });
 
   return (
     <section
@@ -36,6 +42,7 @@ export const KanbanColumn = ({
         <input
           value={column.title}
           onChange={(event) => onRename(column.id, event.target.value)}
+          readOnly={!canEdit}
           className="min-w-0 flex-1 bg-transparent font-display text-base font-semibold text-[var(--navy-dark)] outline-none"
           aria-label="Column title"
         />
@@ -44,24 +51,35 @@ export const KanbanColumn = ({
         </span>
       </div>
       <div className="mt-3 flex flex-1 flex-col gap-2.5">
-        <SortableContext items={column.cardIds} strategy={verticalListSortingStrategy}>
+        <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
           {cards.map((card) => (
             <KanbanCard
               key={card.id}
               card={card}
               onDelete={(cardId) => onDeleteCard(column.id, cardId)}
+              onOpen={onOpenCard}
+              canEdit={canEdit}
             />
           ))}
         </SortableContext>
         {cards.length === 0 && (
           <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-[var(--stroke)] px-3 py-6 text-center text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
-            Drop a card here
+            {hiddenCount > 0
+              ? `${hiddenCount} hidden by filters`
+              : "Drop a card here"}
           </div>
         )}
+        {cards.length > 0 && hiddenCount > 0 && (
+          <p className="mt-1 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+            {hiddenCount} hidden by filters
+          </p>
+        )}
       </div>
-      <NewCardForm
-        onAdd={(title, details) => onAddCard(column.id, title, details)}
-      />
+      {canEdit && (
+        <NewCardForm
+          onAdd={(title, details) => onAddCard(column.id, title, details)}
+        />
+      )}
     </section>
   );
 };

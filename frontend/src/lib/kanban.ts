@@ -1,7 +1,38 @@
+export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+export type Priority = (typeof PRIORITIES)[number];
+
 export type Card = {
   id: string;
   title: string;
   details: string;
+  labels?: string[];
+  priority?: Priority | null;
+  due_date?: string | null;
+};
+
+export const PRIORITY_META: Record<
+  Priority,
+  { label: string; color: string; text: string }
+> = {
+  low: { label: "Low", color: "#c6e4f4", text: "#0a4e72" },
+  medium: { label: "Medium", color: "#f4e6b5", text: "#7a5a00" },
+  high: { label: "High", color: "#f8c9a0", text: "#a14300" },
+  urgent: { label: "Urgent", color: "#f4bec4", text: "#8c1325" },
+};
+
+export const dueDateStatus = (
+  due?: string | null,
+  today: Date = new Date()
+): "overdue" | "today" | "soon" | "later" | null => {
+  if (!due) return null;
+  const d = new Date(`${due}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const diffDays = Math.round((d.getTime() - t.getTime()) / 86_400_000);
+  if (diffDays < 0) return "overdue";
+  if (diffDays === 0) return "today";
+  if (diffDays <= 3) return "soon";
+  return "later";
 };
 
 export type Column = {

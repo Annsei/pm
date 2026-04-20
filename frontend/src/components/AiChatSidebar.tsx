@@ -2,18 +2,20 @@
 
 import { useRef, useState } from "react";
 import type { BoardData } from "@/lib/kanban";
-import { chatAi, type ChatMessage } from "@/lib/api";
+import { AuthError, chatAi, type ChatMessage } from "@/lib/api";
 
 interface AiChatSidebarProps {
-  userId: string;
+  boardId: string;
   board: BoardData;
   onBoardUpdate: (board: BoardData) => void;
+  onAuthLost: () => void;
 }
 
 export const AiChatSidebar = ({
-  userId,
+  boardId,
   board,
   onBoardUpdate,
+  onAuthLost,
 }: AiChatSidebarProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -36,7 +38,7 @@ export const AiChatSidebar = ({
     scrollToBottom();
 
     try {
-      const res = await chatAi(userId, question, board, nextMessages.slice(0, -1));
+      const res = await chatAi(boardId, question, board, nextMessages.slice(0, -1));
       const assistantMsg: ChatMessage = {
         role: "assistant",
         content: res.response_text,
@@ -45,7 +47,11 @@ export const AiChatSidebar = ({
       if (res.board_update) {
         onBoardUpdate(res.board_update);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof AuthError) {
+        onAuthLost();
+        return;
+      }
       const errorMsg: ChatMessage = {
         role: "assistant",
         content: "Sorry, something went wrong. Please try again.",

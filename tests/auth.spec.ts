@@ -1,59 +1,63 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Authentication", () => {
-  test("should show login form initially", async ({ page }) => {
-    await page.goto("/");
+const uniqueUser = () => `user_${Math.random().toString(36).slice(2, 10)}`;
 
+test.describe("Authentication", () => {
+  test("shows login form initially", async ({ page }) => {
+    await page.goto("/");
     await expect(page.locator("h1")).toContainText("Kanban Studio");
     await expect(page.locator("text=Sign in to your account")).toBeVisible();
-    await expect(page.locator("input[type='text']")).toBeVisible();
-    await expect(page.locator("input[type='password']")).toBeVisible();
   });
 
-  test("should login with correct credentials", async ({ page }) => {
+  test("logs in with correct credentials", async ({ page }) => {
     await page.goto("/");
+    await page.getByLabel("Username").fill("user");
+    await page.getByLabel("Password").fill("password");
+    await page.getByRole("button", { name: "Sign In" }).click();
 
-    await page.fill("input[type='text']", "user");
-    await page.fill("input[type='password']", "password");
-    await page.click("button[type='submit']");
-
-    await expect(page.locator("text=Single Board Kanban")).toBeVisible();
-    await expect(page.locator("text=Logout")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Logout" })).toBeVisible();
   });
 
-  test("should show error with incorrect credentials", async ({ page }) => {
+  test("shows error with incorrect credentials", async ({ page }) => {
     await page.goto("/");
-
-    await page.fill("input[type='text']", "wrong");
-    await page.fill("input[type='password']", "wrong");
-    await page.click("button[type='submit']");
-
-    await expect(page.locator("text=Invalid credentials")).toBeVisible();
+    await page.getByLabel("Username").fill("user");
+    await page.getByLabel("Password").fill("wrong-password-123");
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await expect(page.getByRole("alert")).toContainText(/invalid credentials/i);
   });
 
-  test("should persist login across page reloads", async ({ page }) => {
+  test("registers a new user and reaches the board list", async ({ page }) => {
+    const username = uniqueUser();
     await page.goto("/");
+    await page.getByRole("button", { name: /create one/i }).click();
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill("secret123");
+    await page.getByRole("button", { name: /create account/i }).click();
 
-    await page.fill("input[type='text']", "user");
-    await page.fill("input[type='password']", "password");
-    await page.click("button[type='submit']");
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible();
+    await expect(page.getByText("My First Board")).toBeVisible();
+  });
 
-    await expect(page.locator("text=Single Board Kanban")).toBeVisible();
+  test("persists login across page reloads", async ({ page }) => {
+    await page.goto("/");
+    await page.getByLabel("Username").fill("user");
+    await page.getByLabel("Password").fill("password");
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible();
 
     await page.reload();
-
-    await expect(page.locator("text=Single Board Kanban")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible();
   });
 
-  test("should logout successfully", async ({ page }) => {
+  test("logs out successfully", async ({ page }) => {
     await page.goto("/");
+    await page.getByLabel("Username").fill("user");
+    await page.getByLabel("Password").fill("password");
+    await page.getByRole("button", { name: "Sign In" }).click();
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible();
 
-    await page.fill("input[type='text']", "user");
-    await page.fill("input[type='password']", "password");
-    await page.click("button[type='submit']");
-
-    await page.click("text=Logout");
-
-    await expect(page.locator("text=Sign in to your account")).toBeVisible();
+    await page.getByRole("button", { name: "Logout" }).click();
+    await expect(page.getByText("Sign in to your account")).toBeVisible();
   });
 });
