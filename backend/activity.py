@@ -34,11 +34,23 @@ def _card_locations(columns: list[dict]) -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
     for col in columns or []:
         col_id = col.get("id")
+        if not col_id:
+            continue
         title = col.get("title", "")
-        for card_id in col.get("cardIds", []) or []:
-            if col_id:
-                out[card_id] = (col_id, title)
+        for card_id in col.get("cardIds") or []:
+            out[card_id] = (col_id, title)
     return out
+
+
+def _card_edited_fields(old_c: dict, new_c: dict) -> list[str]:
+    changed = [
+        field
+        for field in TRACKED_CARD_FIELDS
+        if (old_c.get(field) or None) != (new_c.get(field) or None)
+    ]
+    if sorted(old_c.get("labels") or []) != sorted(new_c.get("labels") or []):
+        changed.append("labels")
+    return changed
 
 
 def diff_board_data(old: dict, new: dict) -> list[dict]:
@@ -47,39 +59,34 @@ def diff_board_data(old: dict, new: dict) -> list[dict]:
     Each event is a dict suitable for ActivityLog.meta with a `action` key
     identifying what happened. Empty list = no material change.
     """
-    old_cards = (old or {}).get("cards", {}) or {}
-    new_cards = (new or {}).get("cards", {}) or {}
-    old_cols = (old or {}).get("columns", []) or []
-    new_cols = (new or {}).get("columns", []) or []
+    old = old or {}
+    new = new or {}
+    old_cards = old.get("cards") or {}
+    new_cards = new.get("cards") or {}
+    old_cols = old.get("columns") or []
+    new_cols = new.get("columns") or []
 
     old_loc = _card_locations(old_cols)
     new_loc = _card_locations(new_cols)
 
     events: list[dict] = []
-    old_ids = set(old_cards.keys())
-    new_ids = set(new_cards.keys())
+    old_ids = set(old_cards)
+    new_ids = set(new_cards)
 
     for cid in sorted(new_ids - old_ids):
-        card = new_cards[cid]
-        column_title = new_loc.get(cid, ("", ""))[1]
-        events.append(
-            {
-                "action": "card_add",
-                "card_id": cid,
-                "title": card.get("title", ""),
-                "column_title": column_title,
-            }
-        )
+        events.append({
+            "action": "card_add",
+            "card_id": cid,
+            "title": new_cards[cid].get("title", ""),
+            "column_title": new_loc.get(cid, ("", ""))[1],
+        })
 
     for cid in sorted(old_ids - new_ids):
-        card = old_cards[cid]
-        events.append(
-            {
-                "action": "card_delete",
-                "card_id": cid,
-                "title": card.get("title", ""),
-            }
-        )
+        events.append({
+            "action": "card_delete",
+            "card_id": cid,
+            "title": old_cards[cid].get("title", ""),
+        })
 
     for cid in sorted(old_ids & new_ids):
         old_c = old_cards[cid]
@@ -88,48 +95,32 @@ def diff_board_data(old: dict, new: dict) -> list[dict]:
         old_here = old_loc.get(cid)
         new_here = new_loc.get(cid)
         if old_here and new_here and old_here[0] != new_here[0]:
-            events.append(
-                {
-                    "action": "card_move",
-                    "card_id": cid,
-                    "title": new_c.get("title", ""),
-                    "from_column": old_here[1],
-                    "to_column": new_here[1],
-                }
-            )
+            events.append({
+                "action": "card_move",
+                "card_id": cid,
+                "title": new_c.get("title", ""),
+                "from_column": old_here[1],
+                "to_column": new_here[1],
+            })
 
-        changed: list[str] = []
-        for field in TRACKED_CARD_FIELDS:
-            if (old_c.get(field) or None) != (new_c.get(field) or None):
-                changed.append(field)
-        old_labels = sorted(old_c.get("labels", []) or [])
-        new_labels = sorted(new_c.get("labels", []) or [])
-        if old_labels != new_labels:
-            changed.append("labels")
+        changed = _card_edited_fields(old_c, new_c)
         if changed:
-            events.append(
-                {
-                    "action": "card_edit",
-                    "card_id": cid,
-                    "title": new_c.get("title", ""),
-                    "fields": changed,
-                }
-            )
+            events.append({
+                "action": "card_edit",
+                "card_id": cid,
+                "title": new_c.get("title", ""),
+                "fields": changed,
+            })
 
-    old_col_by_id = {c.get("id"): c for c in old_cols if c.get("id")}
+    old_col_titles = {c.get("id"): c.get("title", "") for c in old_cols if c.get("id")}
     for col in new_cols:
         col_id = col.get("id")
-        if col_id and col_id in old_col_by_id:
-            old_title = old_col_by_id[col_id].get("title", "")
-            new_title = col.get("title", "")
-            if old_title != new_title:
-                events.append(
-                    {
-                        "action": "column_rename",
-                        "column_id": col_id,
-                        "from_title": old_title,
-                        "to_title": new_title,
-                    }
-                )
+        if col_id in old_col_titles and old_col_titles[col_id] != col.get("title", ""):
+            events.append({
+                "action": "column_rename",
+                "column_id": col_id,
+                "from_title": old_col_titles[col_id],
+                "to_title": col.get("title", ""),
+            })
 
     return events

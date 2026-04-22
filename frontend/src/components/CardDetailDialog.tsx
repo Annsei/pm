@@ -64,9 +64,9 @@ export const CardDetailDialog = ({
     onSave({
       id: card.id,
       title: title.trim(),
-      details: details,
+      details,
       labels: cleanedLabels,
-      priority: priority === "" ? null : priority,
+      priority: priority || null,
       due_date: dueDate || null,
     });
     onClose();
@@ -135,7 +135,7 @@ export const CardDetailDialog = ({
               <select
                 id="cd-priority"
                 value={priority}
-                onChange={(e) => setPriority((e.target.value || "") as Priority | "")}
+                onChange={(e) => setPriority(e.target.value as Priority | "")}
                 disabled={readOnly}
                 className="w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm outline-none focus:border-[var(--primary-blue)] disabled:opacity-60"
               >

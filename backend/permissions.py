@@ -42,10 +42,10 @@ def require_role(role: BoardRole, minimum: BoardRole) -> None:
 def summarize_board(board: Board, role: BoardRole, owner: User) -> BoardSummary:
     try:
         data = json.loads(board.data)
-        columns = data.get("columns", []) or []
-        cards = data.get("cards", {}) or {}
     except (ValueError, TypeError):
-        columns, cards = [], {}
+        data = {}
+    columns = data.get("columns") or []
+    cards = data.get("cards") or {}
     return BoardSummary(
         id=board.id,
         name=board.name,

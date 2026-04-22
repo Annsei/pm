@@ -16,16 +16,14 @@ from backend.schemas import (
 router = APIRouter(prefix="/api/dashboard")
 
 
-def _load_boards_with_roles(
-    db: DbSession, user: User
-) -> list[tuple[Board, str]]:
-    """Return list of (board, role) for every board the user can access."""
+def _load_boards_with_roles(db: DbSession, user: User) -> list[tuple[Board, str]]:
+    """Return list of (board, role) for every non-archived board the user can access."""
     owned = (
         db.query(Board)
         .filter(Board.user_id == user.id, Board.is_archived.is_(False))
         .all()
     )
-    shared_rows = (
+    shared = (
         db.query(Board, BoardCollaborator.role)
         .join(BoardCollaborator, BoardCollaborator.board_id == Board.id)
         .filter(
@@ -34,9 +32,7 @@ def _load_boards_with_roles(
         )
         .all()
     )
-    result: list[tuple[Board, str]] = [(b, "owner") for b in owned]
-    result.extend((b, role) for b, role in shared_rows)
-    return result
+    return [(b, "owner") for b in owned] + list(shared)
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -76,13 +72,12 @@ def get_dashboard(
         try:
             data = json.loads(board.data)
         except (ValueError, TypeError):
-            data = {"columns": [], "cards": {}}
+            data = {}
         cards: dict = data.get("cards") or {}
         col_title_by_card = _card_column_titles(data)
 
-        overdue = 0
-        due_soon = 0
-        for card in cards.values():
+        overdue = due_soon = 0
+        for cid, card in cards.items():
             due = _parse_date(card.get("due_date"))
             if due is None:
                 continue
@@ -90,24 +85,6 @@ def get_dashboard(
                 overdue += 1
             elif due <= soon_cutoff:
                 due_soon += 1
-
-        board_summaries.append(
-            DashboardBoard(
-                board_id=board.id,
-                name=board.name,
-                color=board.color,
-                role=role,  # type: ignore[arg-type]
-                is_shared=role != "owner",
-                card_count=len(cards),
-                overdue_count=overdue,
-                due_soon_count=due_soon,
-            )
-        )
-
-        for cid, card in cards.items():
-            due = _parse_date(card.get("due_date"))
-            if due is None:
-                continue
             all_cards.append(
                 DashboardCard(
                     card_id=cid,
@@ -122,6 +99,19 @@ def get_dashboard(
                     overdue=due < today,
                 )
             )
+
+        board_summaries.append(
+            DashboardBoard(
+                board_id=board.id,
+                name=board.name,
+                color=board.color,
+                role=role,  # type: ignore[arg-type]
+                is_shared=role != "owner",
+                card_count=len(cards),
+                overdue_count=overdue,
+                due_soon_count=due_soon,
+            )
+        )
 
     # Sort upcoming by due_date ascending; overdue first within the earliest dates.
     all_cards.sort(key=lambda c: (c.due_date or "9999-12-31", c.title.lower()))

@@ -9,6 +9,13 @@ from sqlalchemy.sql import func
 COLLABORATOR_ROLES = ("viewer", "editor")
 
 
+def _utcnow_naive() -> datetime:
+    # SQLite's CURRENT_TIMESTAMP only has second precision, which breaks
+    # ordering when many rows are created in the same request. Use a
+    # Python-side default for microsecond precision instead.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -91,14 +98,7 @@ class ActivityLog(Base):
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String, nullable=False)
     meta: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
-    # Python-side default so each row gets a microsecond-precision timestamp;
-    # SQLite's CURRENT_TIMESTAMP only has second precision, which breaks
-    # ordering when many activity rows are created in the same request.
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        index=True,
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
 
 
 class Notification(Base):
@@ -119,11 +119,7 @@ class Notification(Base):
     actor_id: Mapped[str | None] = mapped_column(String, ForeignKey("users.id"), nullable=True)
     meta: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        index=True,
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
 
 
 class CardComment(Base):
@@ -133,19 +129,13 @@ class CardComment(Base):
     board_id: Mapped[str] = mapped_column(
         String, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    # card_id references the card inside the board's JSON blob — no FK.
+    # card_id references a card inside the board's JSON blob — no FK.
     card_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False, index=True)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        index=True,
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, index=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
-        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        DateTime, default=_utcnow_naive, onupdate=_utcnow_naive
     )
 
 
@@ -170,11 +160,9 @@ if DATABASE_URL.startswith("sqlite"):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def create_tables():
-    """Create all tables if they don't exist."""
+def create_tables() -> None:
     if DATABASE_URL.startswith("sqlite:///"):
-        db_path = DATABASE_URL.replace("sqlite:///", "")
-        parent = os.path.dirname(db_path)
+        parent = os.path.dirname(DATABASE_URL.removeprefix("sqlite:///"))
         if parent:
             os.makedirs(parent, exist_ok=True)
     Base.metadata.create_all(bind=engine)
@@ -182,11 +170,8 @@ def create_tables():
 
 def get_db():
     """FastAPI dependency: yield a DB session, close on exit."""
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         yield db
-    finally:
-        db.close()
 
 
 DEFAULT_BOARD_DATA = {

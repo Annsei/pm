@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as DbSession
 
 from backend.activity import diff_board_data, record_activity
-from backend.ai import client as ai_client, MODEL as AI_MODEL, SYSTEM_PROMPT, apply_actions
+from backend.ai import MODEL as AI_MODEL
+from backend.ai import SYSTEM_PROMPT, apply_actions
+from backend.ai import client as ai_client
 from backend.auth import get_current_user
 from backend.models import User, get_db
 from backend.permissions import get_board_with_role, require_role
@@ -20,13 +22,13 @@ def ai_test(current_user: User = Depends(get_current_user)):
             model=AI_MODEL,
             messages=[{"role": "user", "content": "What is 2+2? Reply with just the number."}],
         )
-        return {
-            "response": response.choices[0].message.content,
-            "model": response.model,
-            "status": "ok",
-        }
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+    return {
+        "response": response.choices[0].message.content,
+        "model": response.model,
+        "status": "ok",
+    }
 
 
 @router.post("/chat")
@@ -38,15 +40,18 @@ def ai_chat(
     board, role = get_board_with_role(db, req.board_id, current_user)
     require_role(role, "editor")
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in req.history:
-        messages.append({"role": msg.role, "content": msg.content})
-
     board_context = json.dumps(req.kanban, ensure_ascii=False)
-    messages.append({
-        "role": "user",
-        "content": f"Current board state:\n```json\n{board_context}\n```\n\nUser request: {req.question}",
-    })
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        *({"role": m.role, "content": m.content} for m in req.history),
+        {
+            "role": "user",
+            "content": (
+                f"Current board state:\n```json\n{board_context}\n```\n\n"
+                f"User request: {req.question}"
+            ),
+        },
+    ]
 
     try:
         response = ai_client.chat.completions.create(
@@ -62,9 +67,7 @@ def ai_chat(
         raise HTTPException(status_code=502, detail=str(e))
 
     response_text = parsed.get("response_text", "")
-    actions = parsed.get("actions", [])
-
-    board_update = apply_actions(actions, dict(req.kanban))
+    board_update = apply_actions(parsed.get("actions", []), dict(req.kanban))
 
     if board_update:
         try:

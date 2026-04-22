@@ -39,24 +39,17 @@ export const AiChatSidebar = ({
 
     try {
       const res = await chatAi(boardId, question, board, nextMessages.slice(0, -1));
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: res.response_text,
-      };
-      setMessages([...nextMessages, assistantMsg]);
-      if (res.board_update) {
-        onBoardUpdate(res.board_update);
-      }
+      setMessages([...nextMessages, { role: "assistant", content: res.response_text }]);
+      if (res.board_update) onBoardUpdate(res.board_update);
     } catch (err) {
       if (err instanceof AuthError) {
         onAuthLost();
         return;
       }
-      const errorMsg: ChatMessage = {
-        role: "assistant",
-        content: "Sorry, something went wrong. Please try again.",
-      };
-      setMessages([...nextMessages, errorMsg]);
+      setMessages([
+        ...nextMessages,
+        { role: "assistant", content: "Sorry, something went wrong. Please try again." },
+      ]);
     } finally {
       setLoading(false);
       scrollToBottom();

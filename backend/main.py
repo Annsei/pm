@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.auth import seed_default_user
 from backend.models import create_tables
-from backend.routes import health, auth, boards, ai, comments, notifications, dashboard
+from backend.routes import ai, auth, boards, comments, dashboard, health, notifications
 
 
 @asynccontextmanager
@@ -19,15 +19,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(boards.router)
-app.include_router(comments.router)
-app.include_router(notifications.router)
-app.include_router(dashboard.router)
-app.include_router(ai.router)
+for module in (health, auth, boards, comments, notifications, dashboard, ai):
+    app.include_router(module.router)
 
-# Serve built frontend static export if present
 frontend_out_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "out")
 
 if os.path.isdir(frontend_out_dir):
@@ -35,15 +29,9 @@ if os.path.isdir(frontend_out_dir):
 else:
 
     @app.get("/", response_class=HTMLResponse)
-    def root():
-        return """<!doctype html>
-<html lang='en'>
-  <head>
-    <meta charset='utf-8'>
-    <title>Kanban Studio Backend</title>
-  </head>
-  <body>
-    <h1>Kanban Studio Backend</h1>
-    <p>Status: running</p>
-  </body>
-</html>"""
+    def root() -> str:
+        return (
+            "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+            "<title>Kanban Studio Backend</title></head>"
+            "<body><h1>Kanban Studio Backend</h1><p>Status: running</p></body></html>"
+        )

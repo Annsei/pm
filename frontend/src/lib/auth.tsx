@@ -47,6 +47,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const persistSession = useCallback((token: string, profile: UserProfile) => {
+    setAuthToken(token);
+    localStorage.setItem(TOKEN_KEY, token);
+    setUser(profile);
+  }, []);
+
   useEffect(() => {
     const stored = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
     if (!stored) {
@@ -55,7 +61,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     setAuthToken(stored);
     meApi()
-      .then((u) => setUser(u))
+      .then(setUser)
       .catch((err) => {
         if (err instanceof AuthError) {
           clearAuthToken();
@@ -65,26 +71,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .finally(() => setLoading(false));
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    try {
-      const res = await loginApi(username, password);
-      setAuthToken(res.token);
-      localStorage.setItem(TOKEN_KEY, res.token);
-      setUser(res.user);
-      return true;
-    } catch {
-      clearAuthToken();
-      return false;
-    }
-  }, []);
+  const login = useCallback(
+    async (username: string, password: string) => {
+      try {
+        const res = await loginApi(username, password);
+        persistSession(res.token, res.user);
+        return true;
+      } catch {
+        clearAuthToken();
+        return false;
+      }
+    },
+    [persistSession]
+  );
 
   const register = useCallback(
     async (params: { username: string; password: string; email?: string; display_name?: string }) => {
       try {
         const res = await registerApi(params);
-        setAuthToken(res.token);
-        localStorage.setItem(TOKEN_KEY, res.token);
-        setUser(res.user);
+        persistSession(res.token, res.user);
         return { ok: true as const };
       } catch (err) {
         clearAuthToken();
@@ -92,7 +97,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         return { ok: false as const, message };
       }
     },
-    []
+    [persistSession]
   );
 
   const updateProfile = useCallback(

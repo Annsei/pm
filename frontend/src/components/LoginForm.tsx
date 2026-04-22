@@ -5,6 +5,11 @@ import { useAuth } from "@/lib/auth";
 
 type Mode = "login" | "register";
 
+function submitLabel(mode: Mode, loading: boolean): string {
+  if (mode === "register") return loading ? "Creating account..." : "Create account";
+  return loading ? "Signing in..." : "Sign In";
+}
+
 export const LoginForm = () => {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
@@ -15,17 +20,14 @@ export const LoginForm = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const resetErrors = () => setError("");
+  const isRegister = mode === "register";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    resetErrors();
+    setError("");
     setLoading(true);
     try {
-      if (mode === "login") {
-        const ok = await login(username, password);
-        if (!ok) setError("Invalid credentials");
-      } else {
+      if (isRegister) {
         const res = await register({
           username,
           password,
@@ -33,6 +35,9 @@ export const LoginForm = () => {
           display_name: displayName.trim() || undefined,
         });
         if (!res.ok) setError(res.message);
+      } else {
+        const ok = await login(username, password);
+        if (!ok) setError("Invalid credentials");
       }
     } finally {
       setLoading(false);
@@ -41,10 +46,8 @@ export const LoginForm = () => {
 
   const toggleMode = () => {
     setMode((m) => (m === "login" ? "register" : "login"));
-    resetErrors();
+    setError("");
   };
-
-  const isRegister = mode === "register";
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 px-4">
@@ -135,13 +138,7 @@ export const LoginForm = () => {
               className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors font-medium disabled:opacity-50"
               disabled={loading}
             >
-              {loading
-                ? isRegister
-                  ? "Creating account..."
-                  : "Signing in..."
-                : isRegister
-                  ? "Create account"
-                  : "Sign In"}
+              {submitLabel(mode, loading)}
             </button>
           </form>
 

@@ -59,22 +59,14 @@ def list_notifications(
     )
     board_ids = {r.board_id for r in rows if r.board_id}
     actor_ids = {r.actor_id for r in rows if r.actor_id}
-    boards = (
-        {b.id: b for b in db.query(Board).filter(Board.id.in_(board_ids)).all()}
-        if board_ids
-        else {}
-    )
-    actors = (
-        {u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()}
-        if actor_ids
-        else {}
-    )
+    boards = {
+        b.id: b for b in db.query(Board).filter(Board.id.in_(board_ids)).all()
+    } if board_ids else {}
+    actors = {
+        u.id: u for u in db.query(User).filter(User.id.in_(actor_ids)).all()
+    } if actor_ids else {}
     return [
-        _entry(
-            row,
-            boards.get(row.board_id) if row.board_id else None,
-            actors.get(row.actor_id) if row.actor_id else None,
-        )
+        _entry(row, boards.get(row.board_id), actors.get(row.actor_id))
         for row in rows
     ]
 
@@ -99,10 +91,9 @@ def mark_all_read(
     current_user: User = Depends(get_current_user),
     db: DbSession = Depends(get_db),
 ):
-    now = _now()
     db.query(Notification).filter(
         Notification.user_id == current_user.id,
         Notification.read_at.is_(None),
-    ).update({Notification.read_at: now}, synchronize_session=False)
+    ).update({Notification.read_at: _now()}, synchronize_session=False)
     db.commit()
     return None

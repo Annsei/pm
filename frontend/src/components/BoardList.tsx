@@ -37,14 +37,21 @@ export const BoardList = ({
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const handleError = (err: unknown, fallback: string) => {
+    if (err instanceof AuthError) {
+      onAuthLost();
+      return;
+    }
+    if (err instanceof ApiError) setError(err.message);
+    else setError(err instanceof Error ? err.message : fallback);
+  };
+
   const load = async (archived: boolean) => {
     try {
-      const list = await listBoards(archived);
-      setBoards(list);
+      setBoards(await listBoards(archived));
       setError("");
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof ApiError ? err.message : "Failed to load boards");
+      handleError(err, "Failed to load boards");
     }
   };
 
@@ -62,8 +69,7 @@ export const BoardList = ({
       setBoards((prev) => (prev ? [...prev, board] : [board]));
       setNewName("");
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof ApiError ? err.message : "Failed to create board");
+      handleError(err, "Failed to create board");
     } finally {
       setCreating(false);
     }
@@ -75,10 +81,9 @@ export const BoardList = ({
     setBusyId(board.id);
     try {
       const updated = await patchBoardApi(board.id, { name: name.trim() });
-      setBoards((prev) => (prev ? prev.map((b) => (b.id === board.id ? updated : b)) : prev));
+      setBoards((prev) => prev?.map((b) => (b.id === board.id ? updated : b)) ?? prev);
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof ApiError ? err.message : "Failed to rename board");
+      handleError(err, "Failed to rename board");
     } finally {
       setBusyId(null);
     }
@@ -88,14 +93,14 @@ export const BoardList = ({
     setBusyId(board.id);
     try {
       const updated = await patchBoardApi(board.id, { is_archived: archive });
-      if (archive && !includeArchived) {
-        setBoards((prev) => (prev ? prev.filter((b) => b.id !== board.id) : prev));
-      } else {
-        setBoards((prev) => (prev ? prev.map((b) => (b.id === board.id ? updated : b)) : prev));
-      }
+      const removedFromList = archive && !includeArchived;
+      setBoards((prev) => {
+        if (!prev) return prev;
+        if (removedFromList) return prev.filter((b) => b.id !== board.id);
+        return prev.map((b) => (b.id === board.id ? updated : b));
+      });
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof ApiError ? err.message : "Failed to update board");
+      handleError(err, "Failed to update board");
     } finally {
       setBusyId(null);
     }
@@ -123,8 +128,7 @@ export const BoardList = ({
       const created = await importBoardApi(payload);
       setBoards((prev) => (prev ? [...prev, created] : [created]));
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof Error ? err.message : "Failed to import board");
+      handleError(err, "Failed to import board");
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -136,10 +140,9 @@ export const BoardList = ({
     setBusyId(board.id);
     try {
       await deleteBoardApi(board.id);
-      setBoards((prev) => (prev ? prev.filter((b) => b.id !== board.id) : prev));
+      setBoards((prev) => prev?.filter((b) => b.id !== board.id) ?? prev);
     } catch (err) {
-      if (err instanceof AuthError) onAuthLost();
-      else setError(err instanceof ApiError ? err.message : "Failed to delete board");
+      handleError(err, "Failed to delete board");
     } finally {
       setBusyId(null);
     }

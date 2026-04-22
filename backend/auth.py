@@ -1,3 +1,4 @@
+import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -10,21 +11,28 @@ from backend.models import Session, SessionLocal, User, get_db
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+_BEARER_UNAUTHORIZED = {"WWW-Authenticate": "Bearer"}
+
+
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers=_BEARER_UNAUTHORIZED,
+    )
+
 
 def hash_password(password: str) -> str:
-    """Hash a password with bcrypt."""
     return pwd_context.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its hash. Supports legacy SHA256 hashes."""
+    """Verify password; falls back to SHA256 for legacy pre-bcrypt rows."""
     try:
         if pwd_context.identify(password_hash):
             return pwd_context.verify(password, password_hash)
     except ValueError:
         pass
-    # Legacy SHA256 fallback for pre-existing MVP data.
-    import hashlib
     return hashlib.sha256(password.encode()).hexdigest() == password_hash
 
 
@@ -40,24 +48,27 @@ def create_session(db: DbSession, user: User) -> Session:
     return session
 
 
-def delete_session(db: DbSession, token: str) -> bool:
+def delete_session(db: DbSession, token: str) -> None:
     session = db.get(Session, token)
-    if not session:
-        return False
-    db.delete(session)
-    db.commit()
-    return True
+    if session:
+        db.delete(session)
+        db.commit()
 
 
 def _extract_bearer(authorization: str | None) -> str | None:
     if not authorization:
         return None
-    parts = authorization.split(None, 1)
-    if len(parts) != 2:
+    scheme, _, token = authorization.partition(" ")
+    token = token.strip()
+    if scheme.lower() != "bearer" or not token:
         return None
-    scheme, token = parts[0].lower(), parts[1].strip()
-    if scheme != "bearer" or not token:
-        return None
+    return token
+
+
+def get_current_session_token(authorization: str | None = Header(default=None)) -> str:
+    token = _extract_bearer(authorization)
+    if not token:
+        raise _unauthorized("Missing or invalid Authorization header")
     return token
 
 
@@ -66,21 +77,10 @@ def get_current_user(
     db: DbSession = Depends(get_db),
 ) -> User:
     """Resolve the current user from a Bearer session token."""
-    token = _extract_bearer(authorization)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
+    token = get_current_session_token(authorization)
     session = db.get(Session, token)
     if not session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthorized("Invalid session token")
 
     expires_at = session.expires_at
     if expires_at.tzinfo is None:
@@ -88,30 +88,12 @@ def get_current_user(
     if expires_at < datetime.now(timezone.utc):
         db.delete(session)
         db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthorized("Session expired")
 
     user = db.get(User, session.user_id)
     if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User no longer exists",
-        )
+        raise _unauthorized("User no longer exists")
     return user
-
-
-def get_current_session_token(authorization: str | None = Header(default=None)) -> str:
-    token = _extract_bearer(authorization)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing or invalid Authorization header",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return token
 
 
 def create_user(
@@ -134,12 +116,8 @@ def create_user(
     return user
 
 
-def seed_default_user():
-    """Create the default MVP user if it doesn't exist (backwards compatibility)."""
-    db = SessionLocal()
-    try:
-        existing = db.query(User).filter(User.username == "user").first()
-        if not existing:
+def seed_default_user() -> None:
+    """Create the default demo user on first boot (backwards compatibility)."""
+    with SessionLocal() as db:
+        if not db.query(User).filter(User.username == "user").first():
             create_user(db, username="user", password="password", display_name="Demo User")
-    finally:
-        db.close()

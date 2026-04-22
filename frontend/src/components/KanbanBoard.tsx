@@ -47,6 +47,12 @@ const ROLE_BADGE_CLASS: Record<BoardSummary["role"], string> = {
   viewer: "bg-[var(--surface)] text-[var(--navy-dark)]",
 };
 
+const ROLE_LABEL: Record<BoardSummary["role"], string> = {
+  owner: "Owner",
+  editor: "Editor",
+  viewer: "Viewer",
+};
+
 export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProps) => {
   const { user } = useAuth();
   const canEdit = meta.role !== "viewer";
@@ -62,8 +68,7 @@ export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProp
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveVersion = useRef(0);
 
-  const board = boards[meta.id] ?? null;
-  const loading = board === null;
+  const board = boards[meta.id];
 
   useEffect(() => {
     if (boards[meta.id]) return;
@@ -196,31 +201,23 @@ export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProp
   };
 
   const handleDeleteCardById = (cardId: string) => {
-    update((prev) => ({
-      ...prev,
-      cards: Object.fromEntries(
-        Object.entries(prev.cards).filter(([id]) => id !== cardId)
-      ),
-      columns: prev.columns.map((column) =>
-        column.cardIds.includes(cardId)
-          ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) }
-          : column
-      ),
-    }));
+    update((prev) => {
+      const cards = { ...prev.cards };
+      delete cards[cardId];
+      return {
+        ...prev,
+        cards,
+        columns: prev.columns.map((column) =>
+          column.cardIds.includes(cardId)
+            ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) }
+            : column
+        ),
+      };
+    });
   };
 
-  const handleDeleteCard = (columnId: string, cardId: string) => {
-    update((prev) => ({
-      ...prev,
-      cards: Object.fromEntries(
-        Object.entries(prev.cards).filter(([id]) => id !== cardId)
-      ),
-      columns: prev.columns.map((column) =>
-        column.id === columnId
-          ? { ...column, cardIds: column.cardIds.filter((id) => id !== cardId) }
-          : column
-      ),
-    }));
+  const handleDeleteCard = (_columnId: string, cardId: string) => {
+    handleDeleteCardById(cardId);
   };
 
   const handleAiBoardUpdate = useCallback(
@@ -296,10 +293,9 @@ export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProp
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
+      const safeName =
+        meta.name.replace(/[^a-z0-9_-]+/gi, "_").slice(0, 60) || "board";
       const a = document.createElement("a");
-      const safeName = (meta.name || "board")
-        .replace(/[^a-z0-9_-]+/gi, "_")
-        .slice(0, 60) || "board";
       a.href = url;
       a.download = `${safeName}.json`;
       document.body.appendChild(a);
@@ -314,16 +310,15 @@ export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProp
   }, [meta.id, meta.name, onAuthLost]);
 
   const availableLabels = useMemo(() => {
+    if (!board) return [];
     const set = new Set<string>();
-    if (board) {
-      for (const c of Object.values(board.cards)) {
-        for (const l of c.labels ?? []) set.add(l);
-      }
+    for (const card of Object.values(board.cards)) {
+      card.labels?.forEach((label) => set.add(label));
     }
     return [...set].sort();
   }, [board]);
 
-  if (loading || !board) {
+  if (!board) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="text-lg text-[var(--gray-text)]">Loading board...</p>
@@ -335,8 +330,7 @@ export const KanbanBoard = ({ board: meta, onBack, onAuthLost }: KanbanBoardProp
   const activeCard = canEdit && activeCardId ? cardsById[activeCardId] : null;
   const totalCards = Object.keys(board.cards).length;
   const editingCard = editingCardId ? board.cards[editingCardId] ?? null : null;
-  const roleLabel =
-    meta.role === "owner" ? "Owner" : meta.role === "editor" ? "Editor" : "Viewer";
+  const roleLabel = ROLE_LABEL[meta.role];
 
   return (
     <div className="relative flex overflow-hidden">

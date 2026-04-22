@@ -1,6 +1,6 @@
-import json
 import os
 import uuid
+from datetime import date
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -40,34 +40,51 @@ ALLOWED_PRIORITIES = {"low", "medium", "high", "urgent"}
 def _sanitize_labels(raw) -> list[str]:
     if not isinstance(raw, list):
         return []
-    cleaned: list[str] = []
-    for item in raw[:20]:
-        if isinstance(item, str):
-            stripped = item.strip()
-            if stripped:
-                cleaned.append(stripped[:40])
-    return cleaned
+    return [
+        item.strip()[:40]
+        for item in raw[:20]
+        if isinstance(item, str) and item.strip()
+    ]
 
 
-def _sanitize_priority(raw):
-    if raw is None:
-        return None
+def _sanitize_priority(raw) -> str | None:
     if isinstance(raw, str) and raw.lower() in ALLOWED_PRIORITIES:
         return raw.lower()
     return None
 
 
-def _sanitize_due_date(raw):
-    if raw is None or raw == "":
+def _sanitize_due_date(raw) -> str | None:
+    if not isinstance(raw, str) or not raw:
         return None
-    if not isinstance(raw, str):
-        return None
-    from datetime import date
     try:
         date.fromisoformat(raw)
     except ValueError:
         return None
     return raw
+
+
+CARD_FIELD_SANITIZERS = {
+    "title": lambda v: v,
+    "details": lambda v: v,
+    "labels": _sanitize_labels,
+    "priority": _sanitize_priority,
+    "due_date": _sanitize_due_date,
+}
+
+
+def _remove_card_from_columns(columns: list[dict], card_id: str) -> None:
+    for col in columns:
+        card_ids = col.get("cardIds") or []
+        if card_id in card_ids:
+            card_ids.remove(card_id)
+            return
+
+
+def _append_card_to_column(columns: list[dict], column_id: str, card_id: str) -> None:
+    for col in columns:
+        if col.get("id") == column_id:
+            col.setdefault("cardIds", []).append(card_id)
+            return
 
 
 def apply_actions(actions: list, kanban: dict) -> dict | None:
@@ -98,10 +115,7 @@ def apply_actions(actions: list, kanban: dict) -> dict | None:
                 "priority": _sanitize_priority(act.get("priority")),
                 "due_date": _sanitize_due_date(act.get("due_date")),
             }
-            for col in columns:
-                if col["id"] == col_id:
-                    col["cardIds"].append(card_id)
-                    break
+            _append_card_to_column(columns, col_id, card_id)
             changed = True
 
         elif action == "move_card":
@@ -109,30 +123,18 @@ def apply_actions(actions: list, kanban: dict) -> dict | None:
             to_col = act.get("to_column_id")
             if card_id not in cards or to_col not in column_ids:
                 continue
-            for col in columns:
-                if card_id in col.get("cardIds", []):
-                    col["cardIds"].remove(card_id)
-                    break
-            for col in columns:
-                if col["id"] == to_col:
-                    col["cardIds"].append(card_id)
-                    break
+            _remove_card_from_columns(columns, card_id)
+            _append_card_to_column(columns, to_col, card_id)
             changed = True
 
         elif action == "edit_card":
             card_id = act.get("card_id")
             if card_id not in cards:
                 continue
-            if "title" in act:
-                cards[card_id]["title"] = act["title"]
-            if "details" in act:
-                cards[card_id]["details"] = act["details"]
-            if "labels" in act:
-                cards[card_id]["labels"] = _sanitize_labels(act["labels"])
-            if "priority" in act:
-                cards[card_id]["priority"] = _sanitize_priority(act["priority"])
-            if "due_date" in act:
-                cards[card_id]["due_date"] = _sanitize_due_date(act["due_date"])
+            card = cards[card_id]
+            for field, sanitize in CARD_FIELD_SANITIZERS.items():
+                if field in act:
+                    card[field] = sanitize(act[field])
             changed = True
 
         elif action == "delete_card":
@@ -140,10 +142,7 @@ def apply_actions(actions: list, kanban: dict) -> dict | None:
             if card_id not in cards:
                 continue
             cards.pop(card_id)
-            for col in columns:
-                if card_id in col.get("cardIds", []):
-                    col["cardIds"].remove(card_id)
-                    break
+            _remove_card_from_columns(columns, card_id)
             changed = True
 
     if not changed:

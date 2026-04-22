@@ -24,13 +24,10 @@ router = APIRouter(prefix="/api/auth")
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(req: RegisterRequest, db: DbSession = Depends(get_db)) -> AuthResponse:
-    existing = db.query(User).filter(User.username == req.username).first()
-    if existing:
+    if db.query(User).filter(User.username == req.username).first():
         raise HTTPException(status_code=409, detail="Username already taken")
-    if req.email:
-        email_taken = db.query(User).filter(User.email == req.email).first()
-        if email_taken:
-            raise HTTPException(status_code=409, detail="Email already registered")
+    if req.email and db.query(User).filter(User.email == req.email).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
 
     user = create_user(
         db,

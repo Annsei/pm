@@ -36,11 +36,7 @@ def _resolve_mentions(
     unames = parse_mentions(body)
     if not unames:
         return []
-    users = (
-        db.query(User)
-        .filter(User.username.in_(unames))
-        .all()
-    )
+    users = db.query(User).filter(User.username.in_(unames)).all()
     member_ids = _board_member_ids(db, board)
     return [u for u in users if u.id in member_ids and u.id != exclude_user_id]
 
@@ -81,13 +77,13 @@ def _now() -> datetime:
 router = APIRouter(prefix="/api/boards/{board_id}/cards/{card_id}/comments")
 
 
-def _card_exists(board: Board, card_id: str) -> bool:
+def _ensure_card(board: Board, card_id: str) -> None:
     try:
-        data = json.loads(board.data)
+        cards = (json.loads(board.data) or {}).get("cards") or {}
     except (ValueError, TypeError):
-        return False
-    cards = data.get("cards") or {}
-    return card_id in cards
+        cards = {}
+    if card_id not in cards:
+        raise HTTPException(status_code=404, detail="Card not found")
 
 
 def _entry(row: CardComment, user: User | None) -> CardCommentEntry:
@@ -103,11 +99,6 @@ def _entry(row: CardComment, user: User | None) -> CardCommentEntry:
         updated_at=row.updated_at,
         edited=row.updated_at > row.created_at,
     )
-
-
-def _ensure_card(board: Board, card_id: str) -> None:
-    if not _card_exists(board, card_id):
-        raise HTTPException(status_code=404, detail="Card not found")
 
 
 @router.get("", response_model=list[CardCommentEntry])

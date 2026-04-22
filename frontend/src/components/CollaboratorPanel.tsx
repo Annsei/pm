@@ -127,9 +127,9 @@ export function CollaboratorPanel({
       await removeCollaboratorApi(boardId, entry.user_id);
       if (isSelf && onSelfLeave) {
         onSelfLeave();
-        return;
+      } else {
+        setEntries((prev) => prev.filter((e) => e.user_id !== entry.user_id));
       }
-      setEntries((prev) => prev.filter((e) => e.user_id !== entry.user_id));
     } catch (err) {
       if (err instanceof AuthError) {
         onAuthLost();
@@ -222,7 +222,7 @@ export function CollaboratorPanel({
           {entries.map((entry) => {
             const isSelf = entry.user_id === currentUserId;
             const canEditRole = isOwner && !entry.is_owner;
-            const canRemove = (isOwner && !entry.is_owner) || (isSelf && !entry.is_owner);
+            const canRemove = !entry.is_owner && (isOwner || isSelf);
             return (
               <li
                 key={entry.user_id}

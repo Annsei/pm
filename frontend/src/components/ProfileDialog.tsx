@@ -27,11 +27,13 @@ export function ProfileDialog({ onClose }: ProfileDialogProps) {
     setError(null);
     setSuccess(null);
     const params: Parameters<typeof updateProfile>[0] = {};
-    if (displayName.trim() !== user.display_name) {
-      params.display_name = displayName.trim();
+    const trimmedDisplay = displayName.trim();
+    const trimmedEmail = email.trim();
+    if (trimmedDisplay !== user.display_name) {
+      params.display_name = trimmedDisplay;
     }
-    if ((email || null) !== (user.email ?? null)) {
-      params.email = email.trim() === "" ? null : email.trim();
+    if ((trimmedEmail || null) !== (user.email ?? null)) {
+      params.email = trimmedEmail || null;
     }
     if (newPassword) {
       if (!currentPassword) {

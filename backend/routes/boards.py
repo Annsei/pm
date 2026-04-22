@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session as DbSession
 from backend.activity import diff_board_data, record_activity
 from backend.auth import get_current_user
 from backend.models import (
+    DEFAULT_BOARD_DATA,
     ActivityLog,
     Board,
     BoardCollaborator,
     CardComment,
-    DEFAULT_BOARD_DATA,
     Notification,
     User,
     get_db,
@@ -82,30 +82,29 @@ def list_boards(
         db.refresh(board)
         owned = [board]
 
-    shared_rows = (
+    shared_query = (
         db.query(Board, BoardCollaborator.role)
         .join(BoardCollaborator, BoardCollaborator.board_id == Board.id)
         .filter(BoardCollaborator.user_id == current_user.id)
     )
     if not include_archived:
-        shared_rows = shared_rows.filter(Board.is_archived.is_(False))
-    shared_rows = shared_rows.order_by(Board.created_at.asc()).all()
+        shared_query = shared_query.filter(Board.is_archived.is_(False))
+    shared_rows = shared_query.order_by(Board.created_at.asc()).all()
 
-    owner_ids = {b.user_id for b, _ in [(o, "owner") for o in owned]} | {
-        b.user_id for b, _ in shared_rows
-    }
-    owners = {
-        u.id: u for u in db.query(User).filter(User.id.in_(owner_ids)).all()
-    } if owner_ids else {}
+    owner_ids = {b.user_id for b in owned} | {b.user_id for b, _ in shared_rows}
+    owners = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(owner_ids)).all()}
+        if owner_ids
+        else {}
+    )
 
-    out: list[BoardSummary] = []
-    for b in owned:
-        out.append(summarize_board(b, "owner", owners.get(b.user_id) or current_user))
+    out: list[BoardSummary] = [
+        summarize_board(b, "owner", owners.get(b.user_id) or current_user) for b in owned
+    ]
     for b, role in shared_rows:
         owner = owners.get(b.user_id)
-        if not owner:
-            continue
-        out.append(summarize_board(b, role, owner))
+        if owner:
+            out.append(summarize_board(b, role, owner))
     return out
 
 
@@ -222,19 +221,19 @@ def export_board(
         if author_ids
         else {}
     )
-    comments = [
-        BoardExportComment(
-            card_id=row.card_id,
-            body=row.body,
-            username=authors[row.user_id].username if row.user_id in authors else None,
-            display_name=(
-                authors[row.user_id].display_name if row.user_id in authors else None
-            ),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
+    comments = []
+    for row in comment_rows:
+        author = authors.get(row.user_id)
+        comments.append(
+            BoardExportComment(
+                card_id=row.card_id,
+                body=row.body,
+                username=author.username if author else None,
+                display_name=author.display_name if author else None,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
         )
-        for row in comment_rows
-    ]
 
     return BoardExport(
         version=1,
@@ -283,30 +282,21 @@ def update_board_meta(
 ) -> BoardSummary:
     board, role = get_board_with_role(db, board_id, current_user)
     require_role(role, "owner")
+
     changes: dict[str, tuple] = {}
-    if req.name is not None and req.name != board.name:
-        changes["name"] = (board.name, req.name)
-        board.name = req.name
-    if req.description is not None and req.description != board.description:
-        changes["description"] = (board.description, req.description)
-        board.description = req.description
-    if req.color is not None and req.color != board.color:
-        changes["color"] = (board.color, req.color)
-        board.color = req.color
-    if req.is_archived is not None and req.is_archived != board.is_archived:
-        changes["is_archived"] = (board.is_archived, req.is_archived)
-        board.is_archived = req.is_archived
-    if req.position is not None and req.position != board.position:
-        changes["position"] = (board.position, req.position)
-        board.position = req.position
+    for field in ("name", "description", "color", "is_archived", "position"):
+        new_val = getattr(req, field)
+        old_val = getattr(board, field)
+        if new_val is not None and new_val != old_val:
+            changes[field] = (old_val, new_val)
+            setattr(board, field, new_val)
 
     if "is_archived" in changes:
-        new_val = changes["is_archived"][1]
         record_activity(
             db,
             board_id=board.id,
             user_id=current_user.id,
-            action="board_archive" if new_val else "board_unarchive",
+            action="board_archive" if changes["is_archived"][1] else "board_unarchive",
             meta={"name": board.name},
         )
     meta_fields = {k: {"from": v[0], "to": v[1]} for k, v in changes.items() if k != "is_archived"}
@@ -359,10 +349,11 @@ def list_activity(
         .all()
     )
     user_ids = {row.user_id for row in rows}
-    users = {}
-    if user_ids:
-        for u in db.query(User).filter(User.id.in_(user_ids)).all():
-            users[u.id] = u
+    users = (
+        {u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
     out: list[ActivityEntry] = []
     for row in rows:
         try:
@@ -425,8 +416,6 @@ def list_collaborators(
 ) -> list[CollaboratorEntry]:
     board, _role = get_board_with_role(db, board_id, current_user)
     owner = db.get(User, board.user_id)
-    if not owner:
-        raise HTTPException(status_code=500, detail="Board owner missing")
     rows = (
         db.query(BoardCollaborator)
         .filter(BoardCollaborator.board_id == board.id)

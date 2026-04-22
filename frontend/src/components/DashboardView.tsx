@@ -220,6 +220,12 @@ export function DashboardView({ open, onClose, onAuthLost }: DashboardViewProps)
   );
 }
 
+const STAT_TONE_CLASS = {
+  danger: "bg-red-50 text-red-700 border-red-200",
+  warning: "bg-amber-50 text-amber-700 border-amber-200",
+  default: "bg-[var(--surface)] text-[var(--navy-dark)] border-[var(--stroke)]",
+} as const;
+
 function StatCard({
   label,
   value,
@@ -231,12 +237,7 @@ function StatCard({
   tone?: "danger" | "warning";
   testid?: string;
 }) {
-  const toneClass =
-    tone === "danger"
-      ? "bg-red-50 text-red-700 border-red-200"
-      : tone === "warning"
-        ? "bg-amber-50 text-amber-700 border-amber-200"
-        : "bg-[var(--surface)] text-[var(--navy-dark)] border-[var(--stroke)]";
+  const toneClass = STAT_TONE_CLASS[tone ?? "default"];
   return (
     <div
       data-testid={testid}

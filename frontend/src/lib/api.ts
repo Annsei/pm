@@ -1,34 +1,38 @@
 import type { BoardData } from "./kanban";
 
-let _token: string | null = null;
+let authToken: string | null = null;
 
 export function setAuthToken(token: string) {
-  _token = token;
+  authToken = token;
 }
 
 export function clearAuthToken() {
-  _token = null;
+  authToken = null;
 }
 
 export function getAuthToken(): string | null {
-  return _token;
+  return authToken;
 }
 
 function authHeaders(): Record<string, string> {
-  return _token ? { Authorization: `Bearer ${_token}` } : {};
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
+function jsonHeaders(): Record<string, string> {
+  return { "Content-Type": "application/json", ...authHeaders() };
 }
 
 async function handle<T>(res: Response): Promise<T> {
-  if (res.status === 401) {
-    throw new AuthError("Unauthorized");
-  }
+  if (res.status === 401) throw new AuthError("Unauthorized");
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
       const body = await res.json();
-      if (body?.detail) detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      if (body?.detail) {
+        detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      }
     } catch {
-      // ignore JSON parse failure
+      // Body wasn't JSON; keep the generic message.
     }
     throw new ApiError(detail, res.status);
   }
@@ -150,7 +154,7 @@ export async function updateProfileApi(params: {
 }): Promise<UserProfile> {
   const res = await fetch("/api/auth/me", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify(params),
   });
   return handle<UserProfile>(res);
@@ -159,7 +163,7 @@ export async function updateProfileApi(params: {
 // Boards --------------------------------------------------------------
 
 export async function listBoards(includeArchived = false): Promise<BoardSummary[]> {
-  const url = includeArchived ? "/api/boards?include_archived=true" : "/api/boards";
+  const url = `/api/boards${includeArchived ? "?include_archived=true" : ""}`;
   const res = await fetch(url, { headers: authHeaders() });
   return handle<BoardSummary[]>(res);
 }
@@ -171,7 +175,7 @@ export async function createBoardApi(params: {
 }): Promise<BoardSummary> {
   const res = await fetch("/api/boards", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify(params),
   });
   return handle<BoardSummary>(res);
@@ -189,7 +193,7 @@ export async function patchBoardApi(
 ): Promise<BoardSummary> {
   const res = await fetch(`/api/boards/${boardId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify(params),
   });
   return handle<BoardSummary>(res);
@@ -211,7 +215,7 @@ export async function getBoard(boardId: string): Promise<BoardData> {
 export async function updateBoard(boardId: string, board: BoardData): Promise<void> {
   const res = await fetch(`/api/boards/${boardId}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify(board),
   });
   await handle<void>(res);
@@ -246,7 +250,7 @@ export async function importBoardApi(
 ): Promise<BoardSummary> {
   const res = await fetch("/api/boards/import", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify(payload),
   });
   return handle<BoardSummary>(res);
@@ -266,7 +270,7 @@ export async function addCollaboratorApi(
 ): Promise<CollaboratorEntry> {
   const res = await fetch(`/api/boards/${boardId}/collaborators`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify({ username, role }),
   });
   return handle<CollaboratorEntry>(res);
@@ -279,7 +283,7 @@ export async function updateCollaboratorRoleApi(
 ): Promise<CollaboratorEntry> {
   const res = await fetch(`/api/boards/${boardId}/collaborators/${userId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify({ role }),
   });
   return handle<CollaboratorEntry>(res);
@@ -315,13 +319,12 @@ export async function listBoardActivity(
   const params = new URLSearchParams();
   if (opts.limit) params.set("limit", String(opts.limit));
   if (opts.before) params.set("before", opts.before);
-  if (opts.kinds && opts.kinds.length > 0) {
-    params.set("kinds", opts.kinds.join(","));
-  }
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`/api/boards/${boardId}/activity${suffix}`, {
-    headers: authHeaders(),
-  });
+  if (opts.kinds?.length) params.set("kinds", opts.kinds.join(","));
+  const query = params.toString();
+  const res = await fetch(
+    `/api/boards/${boardId}/activity${query ? `?${query}` : ""}`,
+    { headers: authHeaders() }
+  );
   return handle<ActivityEntry[]>(res);
 }
 
@@ -361,7 +364,7 @@ export async function addCardCommentApi(
 ): Promise<CardCommentEntry> {
   const res = await fetch(commentsBase(boardId, cardId), {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify({ body }),
   });
   return handle<CardCommentEntry>(res);
@@ -375,7 +378,7 @@ export async function updateCardCommentApi(
 ): Promise<CardCommentEntry> {
   const res = await fetch(`${commentsBase(boardId, cardId)}/${commentId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify({ body }),
   });
   return handle<CardCommentEntry>(res);
@@ -416,8 +419,8 @@ export async function listNotificationsApi(
   const params = new URLSearchParams();
   if (opts.unread_only) params.set("unread_only", "true");
   if (opts.limit) params.set("limit", String(opts.limit));
-  const suffix = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`/api/notifications${suffix}`, {
+  const query = params.toString();
+  const res = await fetch(`/api/notifications${query ? `?${query}` : ""}`, {
     headers: authHeaders(),
   });
   return handle<NotificationEntry[]>(res);
@@ -493,7 +496,7 @@ export async function chatAi(
 ): Promise<ChatResponse> {
   const res = await fetch("/api/ai/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: jsonHeaders(),
     body: JSON.stringify({ board_id: boardId, question, kanban, history }),
   });
   return handle<ChatResponse>(res);
